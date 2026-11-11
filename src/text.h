@@ -3,6 +3,8 @@
  */
 #ifndef TEXT_H
 #define TEXT_H
+#include <stddef.h>
+
 
 /*
  * Перетворити рядок у числа 0..25: літери a-z/A-Z -> 0..25, усе інше відкинути.
