@@ -2,8 +2,9 @@
  * enigma.c — симулятор Enigma M3.                         Відповідальний: A
  */
 #include "enigma.h"
-
 #include <string.h>
+#include <stdbool.h>
+
 
 /* Проводка роторів: ROTOR_WIRING[r][i] — куди йде літера i (вхід справа). */
 const char *const ROTOR_WIRING[NUM_ROTORS] = {
@@ -42,8 +43,28 @@ void enigma_step(const int rotor[3], int pos[3])
      *  - double-step: якщо середній стоїть на своєму нотчі, крокують і середній, і лівий.
      * Перевірка: I-II-III, позиції ADU -> ADV -> AEW -> BFX.
      */
-    (void)rotor;
-    (void)pos;
+    bool made_step = false;
+    if (pos[1] == (int)(ROTOR_NOTCH[rotor[1]] - 'A')){
+        pos[0]++;
+        pos[1]++;
+        made_step = true;
+        if (pos[0] == 26){
+            pos[0] = 0;
+        }
+         if (pos[1] == 26){
+            pos[1] = 0;
+        }
+    }
+    if(pos[2] == (int)(ROTOR_NOTCH[rotor[2]] - 'A') && !made_step){
+        pos[1]++;
+        if (pos[1] == 26){
+            pos[1] = 0;
+        }
+    }
+    pos[2]++;
+     if (pos[2] == 26){
+        pos[2] = 0;
+    }
 }
 
 void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
