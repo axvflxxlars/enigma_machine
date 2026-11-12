@@ -112,8 +112,8 @@ void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
 
     for (int i = 0; i < len; i++)
     {   enigma_step(key -> rotor, p);
-
         int c = in[i];
+        c = key -> plug[c];
         int f = 2;
         int step = p[f] - key -> ring[f];
         int n = key -> rotor[f];
@@ -142,7 +142,8 @@ void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
         n = key -> rotor[f];
 
         c = rotor_backward(c, n, step, inv);
-
+        
+        c = key -> plug[c];
         out[i] = c;
     } 
     
