@@ -33,6 +33,17 @@ void key_init(EnigmaKey *key)
     for (int i = 0; i < ALPHA; i++)
         key->plug[i] = i;
 }
+static int mod(int a)
+{
+    if(a > -1){
+        a %= 26;
+        return a;
+    }
+    while (a < 0){
+        a += 26; 
+    }
+    return a;
+}
 
 void enigma_step(const int rotor[3], int pos[3])
 {
@@ -48,23 +59,31 @@ void enigma_step(const int rotor[3], int pos[3])
         pos[0]++;
         pos[1]++;
         made_step = true;
-        if (pos[0] == 26){
-            pos[0] = 0;
-        }
-         if (pos[1] == 26){
-            pos[1] = 0;
-        }
+        pos[1] = mod(pos[1]);
+        pos[0] = mod(pos[0]);
     }
     if(pos[2] == (int)(ROTOR_NOTCH[rotor[2]] - 'A') && !made_step){
         pos[1]++;
-        if (pos[1] == 26){
-            pos[1] = 0;
-        }
+        pos[1] = mod(pos[1]);
     }
     pos[2]++;
-     if (pos[2] == 26){
-        pos[2] = 0;
-    }
+    pos[2] = mod(pos[2]);
+}
+
+static int rotor_forward(int c, int n, int step){
+    c = mod(c + step);
+    c = ROTOR_WIRING[n][c] - 'A';
+    c = mod(c - step);
+    return c;
+
+}
+
+static int rotor_backward(int c, int n, int step, int inv[5][26]){
+    c = mod(c + step);
+    c = inv[n][c];
+    c = mod(c - step);
+    return c;
+
 }
 
 void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
@@ -80,9 +99,55 @@ void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
      * Порада для швидкості: передобчисліть таблиці один раз, без malloc у циклі,
      * бо брейкер викликає цю функцію мільйони разів.
      */
-    (void)key;
+    int inv[5][26];
+    for (int r = 0; r != NUM_ROTORS; r++)
+    {   for (int i = 0; i != ALPHA; i++){
+            int j = ROTOR_WIRING[r][i] - 'A';
+            inv[r][j] = i;
+        }
+    }
+    
+    
+    int p[3] = {key -> pos[0], key -> pos[1], key -> pos[2]};
+
     for (int i = 0; i < len; i++)
-        out[i] = in[i];
+    {   enigma_step(key -> rotor, p);
+
+        int c = in[i];
+        int f = 2;
+        int step = p[f] - key -> ring[f];
+        int n = key -> rotor[f];
+        c = rotor_forward(c, n, step);
+        f--;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_forward(c, n, step);
+        f--;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_forward(c, n, step);
+
+        c = REFLECTOR_WIRING[key -> reflector][c] - 'A';
+
+        c = rotor_backward(c, n, step, inv);
+        f++;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_backward(c, n, step, inv);
+        f++;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_backward(c, n, step, inv);
+
+        out[i] = c;
+    } 
+    
+
+    
 }
 
 int key_parse(const char *s, EnigmaKey *key)
