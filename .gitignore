@@ -2,3 +2,4 @@ build/
 /enigma
 *.o
 *.dSYM/
+.vscode/

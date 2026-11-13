@@ -15,6 +15,14 @@ const char *const ROTOR_WIRING[NUM_ROTORS] = {
     "VZBRGITYUPSDNHLXAWMKCQFJEO",   /* V   */
 };
 
+ static const char *const rotor_numbers[5] = {
+        "I",
+        "II",
+        "III",
+        "IV",
+        "V"
+    };
+
 /* Коли ротор стоїть на цій літері, наступне натискання штовхає ротор зліва. */
 const char ROTOR_NOTCH[NUM_ROTORS] = { 'Q', 'E', 'V', 'J', 'Z' };
 
@@ -33,70 +41,222 @@ void key_init(EnigmaKey *key)
     for (int i = 0; i < ALPHA; i++)
         key->plug[i] = i;
 }
+static int mod(int a)
+{
+    if(a > -1){
+        a %= 26;
+        return a;
+    }
+    while (a < 0){
+        a += 26; 
+    }
+    return a;
+}
 
 void enigma_step(const int rotor[3], int pos[3])
 {
-    /*
-     * TODO(A): крок роторів.
-     *  - правий ротор крокує завжди;
-     *  - якщо правий стоїть на своєму нотчі, крокує середній;
-     *  - double-step: якщо середній стоїть на своєму нотчі, крокують і середній, і лівий.
-     * Перевірка: I-II-III, позиції ADU -> ADV -> AEW -> BFX.
-     */
     bool made_step = false;
     if (pos[1] == (int)(ROTOR_NOTCH[rotor[1]] - 'A')){
         pos[0]++;
         pos[1]++;
         made_step = true;
-        if (pos[0] == 26){
-            pos[0] = 0;
-        }
-         if (pos[1] == 26){
-            pos[1] = 0;
-        }
+        pos[1] = mod(pos[1]);
+        pos[0] = mod(pos[0]);
     }
     if(pos[2] == (int)(ROTOR_NOTCH[rotor[2]] - 'A') && !made_step){
         pos[1]++;
-        if (pos[1] == 26){
-            pos[1] = 0;
-        }
+        pos[1] = mod(pos[1]);
     }
     pos[2]++;
-     if (pos[2] == 26){
-        pos[2] = 0;
-    }
+    pos[2] = mod(pos[2]);
+}
+
+static int rotor_forward(int c, int n, int step){
+    c = mod(c + step);
+    c = ROTOR_WIRING[n][c] - 'A';
+    c = mod(c - step);
+    return c;
+
+}
+
+static int rotor_backward(int c, int n, int step, int inv[5][26]){
+    c = mod(c + step);
+    c = inv[n][c];
+    c = mod(c - step);
+    return c;
+
 }
 
 void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
 {
-    /*
-     * TODO(A): для кожної літери:
-     *  1. enigma_step() на локальній копії позицій (крок ДО шифрування);
-     *  2. плагборд;
-     *  3. ротори справа наліво (з урахуванням позиції і рингу: зсув = pos - ring);
-     *  4. рефлектор;
-     *  5. ротори зліва направо через ОБЕРНЕНУ проводку (передобчисліть її);
-     *  6. плагборд.
-     * Порада для швидкості: передобчисліть таблиці один раз, без malloc у циклі,
-     * бо брейкер викликає цю функцію мільйони разів.
-     */
-    (void)key;
+    int inv[5][26];
+    for (int r = 0; r != NUM_ROTORS; r++)
+    {   for (int i = 0; i != ALPHA; i++){
+            int j = ROTOR_WIRING[r][i] - 'A';
+            inv[r][j] = i;
+        }
+    }
+    
+    
+    int p[3] = {key -> pos[0], key -> pos[1], key -> pos[2]};
+
     for (int i = 0; i < len; i++)
-        out[i] = in[i];
+    {   enigma_step(key -> rotor, p);
+        int c = in[i];
+        c = key -> plug[c];
+        int f = 2;
+        int step = p[f] - key -> ring[f];
+        int n = key -> rotor[f];
+        c = rotor_forward(c, n, step);
+        f--;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_forward(c, n, step);
+        f--;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_forward(c, n, step);
+
+        c = REFLECTOR_WIRING[key -> reflector][c] - 'A';
+
+        c = rotor_backward(c, n, step, inv);
+        f++;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_backward(c, n, step, inv);
+        f++;
+        step = p[f] - key -> ring[f];
+        n = key -> rotor[f];
+
+        c = rotor_backward(c, n, step, inv);
+
+        c = key -> plug[c];
+        out[i] = c;
+    } 
+    
+
+    
+}
+
+static int rotor_index(const  char *s){
+    for (int i = 0; i <= 4; i++)
+    {
+        if (strcmp(s, rotor_numbers[i]) == 0) return i;
+    }
+    return -1;
+}
+
+static int char_to_number(const char *s, int *out){
+    if (strlen(s) != 3) return -1;
+    for (int i = 0; i <= 2; i++)
+    {   if (s[i] < 'A' || s[i] > 'Z') return -1;
+        out[i] = s[i] - 'A';
+    }
+    return 0;
+
 }
 
 int key_parse(const char *s, EnigmaKey *key)
 {
-    /* TODO(A): розібрати "I-II-III B AAA AAA AB CD EF". Перевірити, що ротори різні,
-     * а літери в парах плагборду не повторюються. */
-    (void)s;
     key_init(key);
-    return -1;
+    char str[128];
+    snprintf(str, sizeof(str), "%s", s);
+    char *rotor_word, *refl_word, *ring_word, *pos_word;
+    char frotor_word [4], srotor_word [4], trotor_word [4];
+    rotor_word = strtok(str, " ");
+    if (rotor_word == NULL) return -1;
+    refl_word = strtok(NULL, " "); 
+    if (refl_word == NULL) return -1;
+    ring_word = strtok(NULL, " ");
+    if (ring_word == NULL) return -1;
+    pos_word = strtok(NULL, " ");
+    if (pos_word == NULL) return -1;
+
+    if (sscanf(rotor_word, "%3[^-]-%3[^-]-%3s", frotor_word, srotor_word, trotor_word) != 3){
+        return -1;
+    }
+    key->rotor[0] = rotor_index(frotor_word);
+    if (key->rotor[0] == -1) return -1;
+    key->rotor[1] = rotor_index(srotor_word);
+    if (key->rotor[1] == -1) return -1;
+    key->rotor[2] = rotor_index(trotor_word);
+    if (key->rotor[2] == -1) return -1;
+    
+    if (key->rotor[0] == key->rotor[1] || key->rotor[1] == key->rotor[2] || key->rotor[0] == key->rotor[2]) return -1;
+
+    if (strlen(refl_word) != 1) return -1;
+
+    if (refl_word[0] != 'B' && refl_word[0] != 'C') return -1;
+
+    if (refl_word[0] == 'B'){
+        key->reflector = REFL_B;
+    }
+    else{
+        key->reflector = REFL_C;
+    }
+
+    if (char_to_number(ring_word, key->ring) || char_to_number(pos_word, key->pos)) return -1;
+
+    char *pair = strtok(NULL, " ");
+
+    while (pair != NULL){
+        if (strlen(pair) != 2) return -1;
+        if (pair[0] < 'A' || pair[0] > 'Z') return -1;
+        if (pair[1] < 'A' || pair[1] > 'Z') return -1;
+        int a = pair[0] - 'A';
+        int b = pair[1] - 'A';
+        if (a == b) return -1;
+        if (key->plug[a] != a || key->plug[b] != b) return -1;
+        key->plug[a] = b;
+        key->plug[b] = a;
+        pair = strtok(NULL, " ");
+    }
+
+    return 0;
 }
 
 void key_print(const EnigmaKey *key, FILE *f)
-{
-    /* TODO(A): друкувати у форматі key_parse. */
-    (void)key;
-    fputs("I-II-III B AAA AAA", f);
+{   char reflector = key->reflector == REFL_B ? 'B' : 'C';
+    
+    for (int i = 0; i < 3; i++)
+    {
+        fputs(rotor_numbers[key->rotor[i]], f);
+        if (i != 2){
+            fputc( '-' , f);
+        }
+    }
+
+    fputc(' ', f);
+
+    fputc(reflector, f);
+
+    fputc(' ', f);
+
+    for (int i = 0; i < 3; i++)
+    {
+        fputc(key->ring[i] + 'A', f);
+        
+    }
+
+    fputc(' ', f);
+
+    for (int i = 0; i < 3; i++)
+    {
+        fputc(key->pos[i] + 'A', f);
+        
+    }
+
+    for (int i = 0; i < 26; i++)
+    {   if (key->plug[i] > i)
+        {   
+            fputc(' ', f);
+            fputc(i + 'A', f);
+            fputc(key->plug[i] + 'A', f);
+        }
+    
+        
+    }
 }
