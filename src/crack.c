@@ -28,17 +28,40 @@ void crack_default_options(CrackOptions *opt)
  * Розшифрувати, порахувати score_ioc, тримати top кращих (масив або min-heap).
  * Повертає кількість заповнених кандидатів (<= max).
  */
+
 static int stage1_rotors(const int *ct, int len, const CrackOptions *opt,
                          Candidate *top, int max)
 {
-    /* TODO(C) */
     (void)ct;
     (void)len;
     (void)opt;
     (void)top;
     (void)max;
+
+    int count = 0;
+
+    for (int a = 0; a < NUM_ROTORS; a++) {
+        for (int b = 0; b < NUM_ROTORS; b++) {
+            for (int c = 0; c < NUM_ROTORS; c++) {
+                if (a == b || a == c || b == c) {
+                    continue;
+                }
+
+                for (int p1 = 0; p1 < ALPHA; p1++) {
+                    for (int p2 = 0; p2 < ALPHA; p2++) {
+                        for (int p3 = 0; p3 < ALPHA; p3++) {
+                            count++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    printf("Total combinations: %d\n", count);
     return 0;
 }
+
 
 /*
  * Крок 2. Для кандидата перебрати ринги правого і середнього ротора (26 × 26).
