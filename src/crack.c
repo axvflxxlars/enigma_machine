@@ -29,28 +29,75 @@ void crack_default_options(CrackOptions *opt)
  * Повертає кількість заповнених кандидатів (<= max).
  */
 
+
+
+
 static int stage1_rotors(const int *ct, int len, const CrackOptions *opt,
                          Candidate *top, int max)
 {
-    (void)ct;
-    (void)len;
-    (void)opt;
-    (void)top;
-    (void)max;
+    if (len <= 0 || max <= 0) {
+        return 0;
+    }
+
+    int *decoded = malloc(sizeof *decoded * (size_t)len);
+    if (decoded == NULL) {
+        fprintf(stderr, "crack: out of memory\n");
+        return 0;
+    }
 
     int count = 0;
+    int saved = 0;
 
-    for (int a = 0; a < NUM_ROTORS; a++) {
-        for (int b = 0; b < NUM_ROTORS; b++) {
-            for (int c = 0; c < NUM_ROTORS; c++) {
-                if (a == b || a == c || b == c) {
-                    continue;
-                }
+    int reflectors = opt->both_reflectors ? NUM_REFLECTORS : 1;
 
-                for (int p1 = 0; p1 < ALPHA; p1++) {
-                    for (int p2 = 0; p2 < ALPHA; p2++) {
-                        for (int p3 = 0; p3 < ALPHA; p3++) {
-                            count++;
+    for (int r = 0; r < reflectors; r++) {
+        for (int a = 0; a < NUM_ROTORS; a++) {
+            for (int b = 0; b < NUM_ROTORS; b++) {
+                for (int c = 0; c < NUM_ROTORS; c++) {
+                    if (a == b || a == c || b == c) {
+                        continue;
+                    }
+
+                    for (int p1 = 0; p1 < ALPHA; p1++) {
+                        for (int p2 = 0; p2 < ALPHA; p2++) {
+                            for (int p3 = 0; p3 < ALPHA; p3++) {
+
+                                EnigmaKey key;
+                                key_init(&key);
+
+                                key.rotor[0] = a;
+                                key.rotor[1] = b;
+                                key.rotor[2] = c;
+
+                                key.pos[0] = p1;
+                                key.pos[1] = p2;
+                                key.pos[2] = p3;
+                                key.reflector = r;
+
+                                enigma_crypt(&key, ct, decoded, len);
+                                double score = score_ioc(decoded, len);
+
+                                if (saved < max) {
+                                    top[saved].key = key;
+                                    top[saved].score = score;
+                                    saved++;
+                                } else {
+                                    int worst = 0;
+
+                                    for (int i = 1; i < saved; i++) {
+                                        if (top[i].score < top[worst].score) {
+                                            worst = i;
+                                        }
+                                    }
+
+                                    if (score > top[worst].score) {
+                                        top[worst].key = key;
+                                        top[worst].score = score;
+                                    }
+                                }
+
+                                count++;
+                            }
                         }
                     }
                 }
@@ -58,8 +105,12 @@ static int stage1_rotors(const int *ct, int len, const CrackOptions *opt,
         }
     }
 
-    printf("Total combinations: %d\n", count);
-    return 0;
+    if (opt->verbose) {
+        fprintf(stderr, "Checked combinations: %d\n", count);
+    }
+
+    free(decoded);
+    return saved;
 }
 
 
@@ -69,13 +120,50 @@ static int stage1_rotors(const int *ct, int len, const CrackOptions *opt,
  * а мінявся тільки момент кроку. Ринг лівого ротора не впливає на результат.
  * Оцінка — score_ioc. Оновити c->key і c->score, якщо стало краще.
  */
+
 static void stage2_rings(const int *ct, int len, Candidate *c)
 {
-    /* TODO(C) */
-    (void)ct;
-    (void)len;
-    (void)c;
+    if (len <= 0) {
+        return;
+    }
+
+    int *decoded = malloc(sizeof *decoded * (size_t)len);
+    if (decoded == NULL) {
+        fprintf(stderr, "crack: out of memory\n");
+        return;
+    }
+
+    EnigmaKey original = c->key;
+    EnigmaKey best_key = original;
+    double best_score = c->score;
+
+    for (int middle = 0; middle < ALPHA; middle++) {
+        for (int right = 0; right < ALPHA; right++) {
+            EnigmaKey key = original;
+
+            key.ring[1] = middle;
+            key.ring[2] = right;
+
+            key.pos[1] = (original.pos[1] + middle) % ALPHA;
+            key.pos[2] = (original.pos[2] + right) % ALPHA;
+
+            enigma_crypt(&key, ct, decoded, len);
+
+            double score = score_ioc(decoded, len);
+
+            if (score > best_score) {
+                best_score = score;
+                best_key = key;
+            }
+        }
+    }
+
+    c->key = best_key;
+    c->score = best_score;
+
+    free(decoded);
 }
+
 
 /*
  * Крок 3. Hill-climbing плагборду для key: пробувати додати / прибрати / поміняти
