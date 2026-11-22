@@ -71,17 +71,33 @@ void enigma_step(const int rotor[3], int pos[3])
     pos[2] = mod(pos[2]);
 }
 
+static int fwd[NUM_ROTORS][ALPHA];
+static int bwd[NUM_ROTORS][ALPHA];
+static bool tables_ready = false;
+
+static void init_tables(void)
+{
+    for (int r = 0; r < NUM_ROTORS; r++) {
+        for (int i = 0; i < ALPHA; i++) {
+            int j = ROTOR_WIRING[r][i] - 'A';
+            fwd[r][i] = j;
+            bwd[r][j] = i;
+        }
+    }
+    tables_ready = true;
+}
+
 static int rotor_forward(int c, int n, int step){
     c = mod(c + step);
-    c = ROTOR_WIRING[n][c] - 'A';
+    c = fwd[n][c];
     c = mod(c - step);
     return c;
 
 }
 
-static int rotor_backward(int c, int n, int step, int inv[5][26]){
+static int rotor_backward(int c, int n, int step){
     c = mod(c + step);
-    c = inv[n][c];
+    c = bwd[n][c];
     c = mod(c - step);
     return c;
 
@@ -89,15 +105,9 @@ static int rotor_backward(int c, int n, int step, int inv[5][26]){
 
 void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
 {
-    int inv[5][26];
-    for (int r = 0; r != NUM_ROTORS; r++)
-    {   for (int i = 0; i != ALPHA; i++){
-            int j = ROTOR_WIRING[r][i] - 'A';
-            inv[r][j] = i;
-        }
-    }
-    
-    
+    if (!tables_ready)
+        init_tables();
+
     int p[3] = {key -> pos[0], key -> pos[1], key -> pos[2]};
 
     for (int i = 0; i < len; i++)
@@ -121,17 +131,17 @@ void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
 
         c = REFLECTOR_WIRING[key -> reflector][c] - 'A';
 
-        c = rotor_backward(c, n, step, inv);
+        c = rotor_backward(c, n, step);
         f++;
         step = p[f] - key -> ring[f];
         n = key -> rotor[f];
 
-        c = rotor_backward(c, n, step, inv);
+        c = rotor_backward(c, n, step);
         f++;
         step = p[f] - key -> ring[f];
         n = key -> rotor[f];
 
-        c = rotor_backward(c, n, step, inv);
+        c = rotor_backward(c, n, step);
 
         c = key -> plug[c];
         out[i] = c;
