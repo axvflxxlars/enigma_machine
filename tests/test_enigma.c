@@ -92,6 +92,34 @@ static void test_key_parse_print(void)
     CHECK(key_parse("I-II-III B AAA AAA AB AC", &k) != 0); /* A двічі в плагборді */
 }
 
+/* Таблиця шляху дає той самий результат, що й enigma_crypt. */
+static void test_path_matches_crypt(void)
+{
+    static const char *const keys[] = {
+        "IV-II-V C KTR QWE AB CD EF GH IJ KL MN OP QR ST",   /* ринги, UKW C, 10 пар */
+        "I-II-III B AAA ADU",                                 /* double-step на початку */
+        "V-III-I B ZQM XEZ AZ BY CX",                         /* нотчі Z і V */
+        "II-V-IV C MMM JZE AQ BJ CM DX EV FL GO HU IZ KP",    /* нотч J, 10 пар */
+    };
+    enum { LEN = 400 };   /* довгий текст: double-step і поворот лівого ротора */
+    static int path[LEN][ALPHA];
+    int a[LEN], b[LEN], c[LEN];
+
+    for (int i = 0; i < LEN; i++)
+        a[i] = (i * 7 + 3) % ALPHA;
+
+    for (size_t n = 0; n < sizeof keys / sizeof keys[0]; n++) {
+        EnigmaKey k;
+        CHECK(key_parse(keys[n], &k) == 0);
+
+        enigma_crypt(&k, a, b, LEN);
+        enigma_build_path(&k, LEN, path);
+        enigma_crypt_path((const int (*)[ALPHA])path, k.plug, a, c, LEN);
+
+        CHECK(memcmp(b, c, sizeof b) == 0);
+    }
+}
+
 int main(void)
 {
     test_basic_vector();
@@ -100,5 +128,6 @@ int main(void)
     test_roundtrip_with_plugs();
     test_no_letter_to_itself();
     test_key_parse_print();
+    test_path_matches_crypt();
     return TEST_SUMMARY("test_enigma");
 }
