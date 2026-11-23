@@ -142,6 +142,35 @@ void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
     } 
 }
 
+void enigma_build_path(const EnigmaKey *key, int len, int (*path)[ALPHA])
+{
+    if (!tables_ready)
+        init_tables();
+
+    int p[3] = {key -> pos[0], key -> pos[1], key -> pos[2]};
+
+    for (int i = 0; i < len; i++)
+    {   enigma_step(key -> rotor, p);
+        for (int c = 0; c < ALPHA; c++)
+        {   int letter = c;
+            letter = through_rotors(letter, key, p);
+            path[i][c] = letter;
+        }
+    }
+}
+
+void enigma_crypt_path(const int (*path)[ALPHA], const int *plug,
+                       const int *in, int *out, int len)
+{
+    for (int i = 0; i < len; i++)
+    {   int c = in[i];
+        c = plug[c];
+        c = path[i][c];
+        c = plug[c];
+        out[i] = c;
+    }
+}
+
 static int rotor_index(const  char *s){
     for (int i = 0; i <= 4; i++)
     {
