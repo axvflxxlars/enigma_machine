@@ -94,6 +94,37 @@ static int rotor_backward(int c, int n, int step){
     return c;
 }
 
+static int through_rotors(int letter, const EnigmaKey *key, const int p[3]){
+    int f = 2;
+    int step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    int n = key -> rotor[f];
+    letter = rotor_forward(letter, n, step);
+    f--;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_forward(letter, n, step);
+    f--;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_forward(letter, n, step);
+    letter = REFLECTOR_WIRING[key -> reflector][letter] - 'A';
+    letter = rotor_backward(letter, n, step);
+    f++;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_backward(letter, n, step);
+    f++;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_backward(letter, n, step);
+    return letter;
+}
+
 void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
 {
     if (!tables_ready)
@@ -105,40 +136,7 @@ void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
     {   enigma_step(key -> rotor, p);
         int c = in[i];
         c = key -> plug[c];
-        int f = 2;
-        int step = p[f] - key -> ring[f];
-        if (step < 0) step += 26;
-        int n = key -> rotor[f];
-        c = rotor_forward(c, n, step);
-        f--;
-        step = p[f] - key -> ring[f];
-        if (step < 0) step += 26;
-        n = key -> rotor[f];
-
-        c = rotor_forward(c, n, step);
-        f--;
-        step = p[f] - key -> ring[f];
-        if (step < 0) step += 26;
-        n = key -> rotor[f];
-
-        c = rotor_forward(c, n, step);
-
-        c = REFLECTOR_WIRING[key -> reflector][c] - 'A';
-
-        c = rotor_backward(c, n, step);
-        f++;
-        step = p[f] - key -> ring[f];
-        if (step < 0) step += 26;
-        n = key -> rotor[f];
-
-        c = rotor_backward(c, n, step);
-        f++;
-        step = p[f] - key -> ring[f];
-        if (step < 0) step += 26;
-        n = key -> rotor[f];
-
-        c = rotor_backward(c, n, step);
-
+        c = through_rotors(c, key, p);
         c = key -> plug[c];
         out[i] = c;
     } 
