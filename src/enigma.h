@@ -37,6 +37,20 @@ void key_init(EnigmaKey *key);
 void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len);
 
 /*
+ * Таблиця шляху для брейкера: path[i][c] — куди ротори з рефлектором переводять
+ * літеру c у позиції i. Плагборд у key ігнорується.
+ * Пам'ять (len рядків по ALPHA) виділяє той, хто викликає.
+ */
+void enigma_build_path(const EnigmaKey *key, int len, int (*path)[ALPHA]);
+
+/*
+ * Розшифрувати за готовою таблицею з плагбордом plug: out[i] = plug[path[i][plug[in[i]]]].
+ * Результат збігається з enigma_crypt для ключа, з якого побудовано path, і його plug.
+ */
+void enigma_crypt_path(const int (*path)[ALPHA], const int *plug,
+                       const int *in, int *out, int len);
+
+/*
  * Один крок роторів (як при натисканні клавіші), включно з double-step
  * середнього ротора. Винесено окремо, щоб тестувати крок.
  */
