@@ -41,17 +41,6 @@ void key_init(EnigmaKey *key)
     for (int i = 0; i < ALPHA; i++)
         key->plug[i] = i;
 }
-static int mod(int a)
-{
-    if(a > -1){
-        a %= 26;
-        return a;
-    }
-    while (a < 0){
-        a += 26; 
-    }
-    return a;
-}
 
 void enigma_step(const int rotor[3], int pos[3])
 {
@@ -60,85 +49,126 @@ void enigma_step(const int rotor[3], int pos[3])
         pos[0]++;
         pos[1]++;
         made_step = true;
-        pos[1] = mod(pos[1]);
-        pos[0] = mod(pos[0]);
+        pos[1] = (pos[1] == 26) ? 0 : pos[1];
+        pos[0] = (pos[0] == 26) ? 0 : pos[0];
     }
     if(pos[2] == (int)(ROTOR_NOTCH[rotor[2]] - 'A') && !made_step){
         pos[1]++;
-        pos[1] = mod(pos[1]);
+        pos[1] = (pos[1] == 26) ? 0 : pos[1];
     }
     pos[2]++;
-    pos[2] = mod(pos[2]);
+    pos[2] = (pos[2] == 26) ? 0 : pos[2];
+}
+
+static int fwd[NUM_ROTORS][ALPHA];
+static int bwd[NUM_ROTORS][ALPHA];
+static bool tables_ready = false;
+
+static void init_tables(void)
+{
+    for (int r = 0; r < NUM_ROTORS; r++) {
+        for (int i = 0; i < ALPHA; i++) {
+            int j = ROTOR_WIRING[r][i] - 'A';
+            fwd[r][i] = j;
+            bwd[r][j] = i;
+        }
+    }
+    tables_ready = true;
 }
 
 static int rotor_forward(int c, int n, int step){
-    c = mod(c + step);
-    c = ROTOR_WIRING[n][c] - 'A';
-    c = mod(c - step);
+    c = c + step;
+    if (c >= 26) c -= 26;
+    c = fwd[n][c];
+    c = c - step;
+    if (c < 0) c += 26;
     return c;
-
 }
 
-static int rotor_backward(int c, int n, int step, int inv[5][26]){
-    c = mod(c + step);
-    c = inv[n][c];
-    c = mod(c - step);
+static int rotor_backward(int c, int n, int step){
+    c = c + step;
+    if (c >= 26) c -= 26;
+    c = bwd[n][c];
+    c = c - step;
+    if (c < 0) c += 26;
     return c;
+}
 
+static int through_rotors(int letter, const EnigmaKey *key, const int p[3]){
+    int f = 2;
+    int step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    int n = key -> rotor[f];
+    letter = rotor_forward(letter, n, step);
+    f--;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_forward(letter, n, step);
+    f--;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_forward(letter, n, step);
+    letter = REFLECTOR_WIRING[key -> reflector][letter] - 'A';
+    letter = rotor_backward(letter, n, step);
+    f++;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_backward(letter, n, step);
+    f++;
+    step = p[f] - key -> ring[f];
+    if (step < 0) step += 26;
+    n = key -> rotor[f];
+    letter = rotor_backward(letter, n, step);
+    return letter;
 }
 
 void enigma_crypt(const EnigmaKey *key, const int *in, int *out, int len)
 {
-    int inv[5][26];
-    for (int r = 0; r != NUM_ROTORS; r++)
-    {   for (int i = 0; i != ALPHA; i++){
-            int j = ROTOR_WIRING[r][i] - 'A';
-            inv[r][j] = i;
-        }
-    }
-    
-    
+    if (!tables_ready)
+        init_tables();
+
     int p[3] = {key -> pos[0], key -> pos[1], key -> pos[2]};
 
     for (int i = 0; i < len; i++)
     {   enigma_step(key -> rotor, p);
         int c = in[i];
         c = key -> plug[c];
-        int f = 2;
-        int step = p[f] - key -> ring[f];
-        int n = key -> rotor[f];
-        c = rotor_forward(c, n, step);
-        f--;
-        step = p[f] - key -> ring[f];
-        n = key -> rotor[f];
-
-        c = rotor_forward(c, n, step);
-        f--;
-        step = p[f] - key -> ring[f];
-        n = key -> rotor[f];
-
-        c = rotor_forward(c, n, step);
-
-        c = REFLECTOR_WIRING[key -> reflector][c] - 'A';
-
-        c = rotor_backward(c, n, step, inv);
-        f++;
-        step = p[f] - key -> ring[f];
-        n = key -> rotor[f];
-
-        c = rotor_backward(c, n, step, inv);
-        f++;
-        step = p[f] - key -> ring[f];
-        n = key -> rotor[f];
-
-        c = rotor_backward(c, n, step, inv);
-
+        c = through_rotors(c, key, p);
         c = key -> plug[c];
         out[i] = c;
     } 
-    
+}
 
-    
+void enigma_build_path(const EnigmaKey *key, int len, int (*path)[ALPHA])
+{
+    if (!tables_ready)
+        init_tables();
+
+    int p[3] = {key -> pos[0], key -> pos[1], key -> pos[2]};
+
+    for (int i = 0; i < len; i++)
+    {   enigma_step(key -> rotor, p);
+        for (int c = 0; c < ALPHA; c++)
+        {   int letter = c;
+            letter = through_rotors(letter, key, p);
+            path[i][c] = letter;
+        }
+    }
+}
+
+void enigma_crypt_path(const int (*path)[ALPHA], const int *plug,
+                       const int *in, int *out, int len)
+{
+    for (int i = 0; i < len; i++)
+    {   int c = in[i];
+        c = plug[c];
+        c = path[i][c];
+        c = plug[c];
+        out[i] = c;
+    }
 }
 
 static int rotor_index(const  char *s){
