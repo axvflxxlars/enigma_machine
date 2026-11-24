@@ -5,7 +5,7 @@ LDLIBS  += -lm
 BUILD   := build
 LIB_SRC := src/enigma.c src/text.c src/score.c src/crack.c
 LIB_OBJ := $(LIB_SRC:src/%.c=$(BUILD)/%.o)
-TESTS   := $(BUILD)/test_enigma $(BUILD)/test_score
+TESTS   := $(BUILD)/test_enigma $(BUILD)/test_score $(BUILD)/test_crack
 HEADERS := $(wildcard src/*.h) tests/test.h
 
 .PHONY: all test debug clean

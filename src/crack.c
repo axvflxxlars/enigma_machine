@@ -1,4 +1,3 @@
-
 /*
  * crack.c — злам Enigma M3 тільки по шифротексту.
  * Відповідальний: C
@@ -8,6 +7,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
+#include <stdint.h>
 
 #include "score.h"
 
@@ -51,9 +52,14 @@ static void plug_add(EnigmaKey *key, int a, int b)
 
 static double plug_score(const int *ct, int len,
                          const EnigmaKey *key,
-                         int *decoded, int score_type)
+                         int *decoded, int score_type,
+                         const int (*path)[ALPHA])
 {
-    enigma_crypt(key, ct, decoded, len);
+    if (path != NULL) {
+        enigma_crypt_path(path, key->plug, ct, decoded, len);
+    } else {
+        enigma_crypt(key, ct, decoded, len);
+    }
 
     if (score_type == 0) {
         return score_ioc(decoded, len);
@@ -76,12 +82,61 @@ void crack_default_options(CrackOptions *opt)
     }
 
     opt->top_n = 200;
+    opt->stage3_top = 50;
     opt->restarts = 5;
     opt->max_plugs = 10;
     opt->both_reflectors = 0;
     opt->verbose = 0;
 }
 
+
+
+/* Min-heap: найгірший кандидат знаходиться в корені. */
+
+static void heap_swap(Candidate *a, Candidate *b)
+{
+    Candidate tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+static void heap_up(Candidate *heap, int i)
+{
+    while (i > 0) {
+        int parent = (i - 1) / 2;
+
+        if (heap[parent].score <= heap[i].score)
+            break;
+
+        heap_swap(&heap[parent], &heap[i]);
+        i = parent;
+    }
+}
+
+static void heap_down(Candidate *heap, int n)
+{
+    int i = 0;
+
+    while (i < n / 2) {
+        int left = 2 * i + 1;
+        int right = left + 1;
+        int smallest = i;
+
+        if (left < n &&
+            heap[left].score < heap[smallest].score)
+            smallest = left;
+
+        if (right < n &&
+            heap[right].score < heap[smallest].score)
+            smallest = right;
+
+        if (smallest == i)
+            break;
+
+        heap_swap(&heap[i], &heap[smallest]);
+        i = smallest;
+    }
+}
 
 /* ---------- Етап 1: ротори та позиції ---------- */
 
@@ -144,21 +199,14 @@ static int stage1_rotors(const int *ct, int len,
                                 if (saved < max) {
                                     top[saved].key = key;
                                     top[saved].score = score;
+
+                                    heap_up(top, saved);
                                     saved++;
-                                } else {
-                                    int worst = 0;
+                                } else if (score > top[0].score) {
+                                    top[0].key = key;
+                                    top[0].score = score;
 
-                                    for (int i = 1; i < saved; i++) {
-                                        if (top[i].score <
-                                            top[worst].score) {
-                                            worst = i;
-                                        }
-                                    }
-
-                                    if (score > top[worst].score) {
-                                        top[worst].key = key;
-                                        top[worst].score = score;
-                                    }
+                                    heap_down(top, saved);
                                 }
 
                                 checked++;
@@ -186,17 +234,17 @@ static int stage1_rotors(const int *ct, int len,
 
 /* ---------- Етап 2: підбір кілець ---------- */
 
-static void stage2_rings(const int *ct, int len, Candidate *c)
+static int stage2_rings(const int *ct, int len, Candidate *c)
 {
     if (len <= 0) {
-        return;
+        return -1;
     }
 
     int *decoded = malloc((size_t)len * sizeof *decoded);
 
     if (decoded == NULL) {
         fprintf(stderr, "crack: out of memory\n");
-        return;
+        return -1;
     }
 
     EnigmaKey original = c->key;
@@ -233,6 +281,7 @@ static void stage2_rings(const int *ct, int len, Candidate *c)
     c->score = best_score;
 
     free(decoded);
+    return 0;
 }
 
 
@@ -243,20 +292,30 @@ static double stage3_plugboard(const int *ct, int len,
                                EnigmaKey *key)
 {
     if (len <= 0) {
-        return 0.0;
+        return -INFINITY;
     }
 
     int *decoded = malloc((size_t)len * sizeof *decoded);
 
     if (decoded == NULL) {
         fprintf(stderr, "crack: out of memory\n");
-        return 0.0;
+        return -INFINITY;
+    }
+
+    int (*path)[ALPHA] = NULL;
+
+    if ((size_t)len <= (size_t)-1 / sizeof *path) {
+        path = malloc((size_t)len * sizeof *path);
+    }
+
+    if (path != NULL) {
+        enigma_build_path(key, len, path);
     }
 
     EnigmaKey initial = *key;
     EnigmaKey best_key = initial;
 
-    double best_score = -1e300;
+    double best_score = -INFINITY;
 
     int max_plugs = opt->max_plugs;
 
@@ -277,8 +336,8 @@ static double stage3_plugboard(const int *ct, int len,
         EnigmaKey current = initial;
 
         /*
-         * Перший запуск починається з порожнього
-         * плагборду. Наступні — з випадкових пар.
+         * Перший запуск починається з початкового
+         * плагборду. Наступні додають випадкові пари.
          */
         if (restart > 0 && max_plugs > 0) {
 
@@ -309,7 +368,7 @@ static double stage3_plugboard(const int *ct, int len,
              score_type++) {
 
             double current_score = plug_score(
-                ct, len, &current, decoded, score_type
+                ct, len, &current, decoded, score_type, path
             );
 
             int improved = 1;
@@ -337,7 +396,7 @@ static double stage3_plugboard(const int *ct, int len,
 
                         double score = plug_score(
                             ct, len, &candidate,
-                            decoded, score_type
+                            decoded, score_type, path
                         );
 
                         if (score > next_score) {
@@ -363,7 +422,7 @@ static double stage3_plugboard(const int *ct, int len,
 
                     double score = plug_score(
                         ct, len, &candidate,
-                        decoded, score_type
+                        decoded, score_type, path
                     );
 
                     if (score > next_score) {
@@ -381,7 +440,7 @@ static double stage3_plugboard(const int *ct, int len,
         }
 
         double final_score = plug_score(
-            ct, len, &current, decoded, 2
+            ct, len, &current, decoded, 2, path
         );
 
         if (final_score > best_score) {
@@ -404,26 +463,103 @@ static double stage3_plugboard(const int *ct, int len,
 
     *key = best_key;
 
+    free(path);
     free(decoded);
 
     return best_score;
 }
 
 
+/* ---------- Етап 4: повторний підбір кілець ---------- */
+
+static double stage4_refine_rings(const int *ct, int len,
+                                  EnigmaKey *key)
+{
+    int *decoded = malloc((size_t)len * sizeof *decoded);
+
+    if (decoded == NULL) {
+        fprintf(stderr, "crack: out of memory\n");
+        return -INFINITY;
+    }
+
+    EnigmaKey original = *key;
+    EnigmaKey best_key = original;
+
+    enigma_crypt(&original, ct, decoded, len);
+    double best_score = score_trigram(decoded, len);
+
+    for (int middle = 0; middle < ALPHA; middle++) {
+        for (int right = 0; right < ALPHA; right++) {
+            EnigmaKey candidate = original;
+
+            candidate.ring[1] = middle;
+            candidate.ring[2] = right;
+
+            candidate.pos[1] =
+                (original.pos[1] + middle
+                 - original.ring[1] + ALPHA) % ALPHA;
+
+            candidate.pos[2] =
+                (original.pos[2] + right
+                 - original.ring[2] + ALPHA) % ALPHA;
+
+            enigma_crypt(&candidate, ct, decoded, len);
+            double score = score_trigram(decoded, len);
+
+            if (score > best_score) {
+                best_score = score;
+                best_key = candidate;
+            }
+        }
+    }
+
+    *key = best_key;
+    free(decoded);
+    return best_score;
+}
+
+
 /* ---------- Головна функція зламу ---------- */
+
+static int compare_candidates(const void *a, const void *b)
+{
+    const Candidate *first = a;
+    const Candidate *second = b;
+
+    if (first->score > second->score) {
+        return -1;
+    }
+
+    if (first->score < second->score) {
+        return 1;
+    }
+
+    return 0;
+}
 
 double crack(const int *ct, int len,
              const CrackOptions *opt, EnigmaKey *best)
 {
     if (best == NULL) {
-        return 0.0;
+        return -INFINITY;
     }
 
     key_init(best);
 
     if (ct == NULL || opt == NULL ||
         len <= 0 || opt->top_n <= 0) {
-        return 0.0;
+        return -INFINITY;
+    }
+
+    if ((size_t)len > SIZE_MAX / sizeof(int) ||
+        (size_t)opt->top_n > SIZE_MAX / sizeof(Candidate)) {
+        return -INFINITY;
+    }
+
+    for (int i = 0; i < len; i++) {
+        if (ct[i] < 0 || ct[i] >= ALPHA) {
+            return -INFINITY;
+        }
     }
 
     Candidate *top = malloc(
@@ -432,7 +568,7 @@ double crack(const int *ct, int len,
 
     if (top == NULL) {
         fprintf(stderr, "crack: out of memory\n");
-        return 0.0;
+        return -INFINITY;
     }
 
     int n = stage1_rotors(
@@ -447,16 +583,72 @@ double crack(const int *ct, int len,
         );
     }
 
-    double best_score = 0.0;
+    double best_score = -INFINITY;
     int found = 0;
 
     for (int i = 0; i < n; i++) {
+        if (stage2_rings(ct, len, &top[i]) != 0) {
+            free(top);
+            return -INFINITY;
+        }
+    }
 
-        stage2_rings(ct, len, &top[i]);
+    qsort(top, (size_t)n, sizeof *top, compare_candidates);
+
+    int limit = n;
+
+    if (opt->stage3_top > 0 && opt->stage3_top < limit) {
+        limit = opt->stage3_top;
+    }
+
+    if (opt->verbose) {
+        fprintf(stderr, "stage 2: %d candidates ranked\n", n);
+        fprintf(stderr, "stage 3: processing %d candidates\n", limit);
+    }
+
+    for (int i = 0; i < limit; i++) {
 
         double score = stage3_plugboard(
             ct, len, opt, &top[i].key
         );
+
+        if (!isfinite(score)) {
+            free(top);
+            return -INFINITY;
+        }
+
+        double refined_score = stage4_refine_rings(
+            ct, len, &top[i].key
+        );
+
+        if (!isfinite(refined_score)) {
+            free(top);
+            return -INFINITY;
+        }
+
+        if (refined_score > score) {
+            score = refined_score;
+
+            /* Stage 5: уточнення плагборда. */
+            EnigmaKey refined_key = top[i].key;
+
+            CrackOptions refine_opt = *opt;
+            refine_opt.restarts = 1;
+
+            double final_score = stage3_plugboard(
+                ct, len, &refine_opt, &refined_key
+            );
+
+            if (!isfinite(final_score)) {
+                free(top);
+                return -INFINITY;
+            }
+
+            if (final_score > score) {
+                score = final_score;
+                top[i].key = refined_key;
+            }
+        }
 
         if (!found || score > best_score) {
             best_score = score;
@@ -469,7 +661,7 @@ double crack(const int *ct, int len,
                 stderr,
                 "candidate %d/%d: score=%.6f\n",
                 i + 1,
-                n,
+                limit,
                 score
             );
         }
@@ -477,5 +669,5 @@ double crack(const int *ct, int len,
 
     free(top);
 
-    return best_score;
+    return found ? best_score : -INFINITY;
 }
