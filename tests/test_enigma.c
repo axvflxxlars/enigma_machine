@@ -44,6 +44,52 @@ static void test_double_step(void)
     CHECK(pos[0] == 1 && pos[1] == 5 && pos[2] == 23);   /* BFX */
 }
 
+/* Середній і правий ротори одночасно на нотчі: середній крокує лише раз. */
+static void test_double_step_both_notches(void)
+{
+    int rotor[3] = { 0, 1, 2 };                     /* I-II-III */
+    int pos[3]   = { 0, 4, 21 };                    /* A E V */
+
+    enigma_step(rotor, pos);
+    CHECK(pos[0] == 1 && pos[1] == 5 && pos[2] == 22);   /* BFW */
+    enigma_step(rotor, pos);
+    CHECK(pos[0] == 1 && pos[1] == 5 && pos[2] == 23);   /* BFX */
+}
+
+/* Кожен ротор I–V праворуч і посередині штовхає сусіда на своєму нотчі. */
+static void test_all_notches(void)
+{
+    for (int r = 0; r < NUM_ROTORS; r++) {
+        int notch = ROTOR_NOTCH[r] - 'A';
+        int next  = (notch + 1) % ALPHA;
+        int other1 = (r + 1) % NUM_ROTORS;
+        int other2 = (r + 2) % NUM_ROTORS;
+
+        /* Правий ротор на нотчі: середній крокує, лівий ні. */
+        int rotor_right[3] = { other1, other2, r };
+        int pos_right[3]   = { 0, 0, notch };       /* A A <нотч> */
+        enigma_step(rotor_right, pos_right);
+        CHECK(pos_right[0] == 0 && pos_right[1] == 1 && pos_right[2] == next);
+
+        /* Середній ротор на нотчі: double-step, крокують усі три. */
+        int rotor_mid[3] = { other1, r, other2 };
+        int right_pos    = (ROTOR_NOTCH[other2] - 'A' + 5) % ALPHA;   /* не на нотчі */
+        int pos_mid[3]   = { 0, notch, right_pos };
+        enigma_step(rotor_mid, pos_mid);
+        CHECK(pos_mid[0] == 1 && pos_mid[1] == next && pos_mid[2] == (right_pos + 1) % ALPHA);
+    }
+}
+
+/* Лівий ротор переходить через Z → A. */
+static void test_wraparound(void)
+{
+    int rotor[3] = { 0, 1, 2 };                     /* I-II-III */
+    int pos[3]   = { 25, 4, 0 };                    /* Z E A */
+
+    enigma_step(rotor, pos);
+    CHECK(pos[0] == 0 && pos[1] == 5 && pos[2] == 1);    /* A F B */
+}
+
 static void test_roundtrip_with_plugs(void)
 {
     EnigmaKey k;
@@ -92,6 +138,32 @@ static void test_key_parse_print(void)
     CHECK(key_parse("I-II-III B AAA AAA AB AC", &k) != 0); /* A двічі в плагборді */
 }
 
+/* key_parse: пробіли й '\n' як роздільники, некоректні рядки відкидаються. */
+static void test_key_parse_edge_cases(void)
+{
+    EnigmaKey k;
+
+    /* Ключ, прочитаний з файлу, закінчується '\n'. */
+    CHECK(key_parse("I-II-III B AAA AAA AB CD\n", &k) == 0);
+    CHECK(k.plug[2] == 3 && k.plug[3] == 2);
+    CHECK(key_parse("I-II-III  B\tAAA AAA", &k) == 0);
+
+    CHECK(key_parse("I-II-IIIX B AAA AAA", &k) != 0);    /* хвіст після ротора */
+    CHECK(key_parse("I-II-III-IV B AAA AAA", &k) != 0);  /* чотири ротори */
+    CHECK(key_parse("I-II B AAA AAA", &k) != 0);         /* два ротори */
+    CHECK(key_parse("I-II-VI B AAA AAA", &k) != 0);      /* ротора VI немає */
+    CHECK(key_parse("I-II-III A AAA AAA", &k) != 0);     /* рефлектора A немає */
+    CHECK(key_parse("I-II-III B AA AAA", &k) != 0);      /* два ринги */
+    CHECK(key_parse("I-II-III B AAA AAA AB C", &k) != 0); /* неповна пара */
+    CHECK(key_parse("I-II-III B AAA AAA AA", &k) != 0);  /* літера з'єднана сама з собою */
+    CHECK(key_parse("", &k) != 0);
+
+    /* Рядок довший за внутрішній буфер не обрізається мовчки. */
+    char longkey[300];
+    snprintf(longkey, sizeof longkey, "I-II-III B AAA AAA%200s", "ZZ");
+    CHECK(key_parse(longkey, &k) != 0);
+}
+
 /* Таблиця шляху дає той самий результат, що й enigma_crypt. */
 static void test_path_matches_crypt(void)
 {
@@ -125,9 +197,13 @@ int main(void)
     test_basic_vector();
     test_ring_vector();
     test_double_step();
+    test_double_step_both_notches();
+    test_all_notches();
+    test_wraparound();
     test_roundtrip_with_plugs();
     test_no_letter_to_itself();
     test_key_parse_print();
+    test_key_parse_edge_cases();
     test_path_matches_crypt();
     return TEST_SUMMARY("test_enigma");
 }
