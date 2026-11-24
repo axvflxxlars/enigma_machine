@@ -46,7 +46,7 @@ grep -rn "TODO(A)" src tools tests
 
 ## Симулятор
 
-Модель Enigma M3 вермахту: три ротори з п'яти (I–V), рефлектор UKW-B або UKW-C, ринги (Ringstellung), стартові позиції (Grundstellung) і плагборд (Steckerbrett) до 13 пар.
+Модель Enigma M3, машини німецького військово-морського флоту. Підтримуються три ротори з п'яти (I–V; морські ротори VI–VIII не реалізовано), рефлектор UKW-B або UKW-C, ринги (Ringstellung), стартові позиції (Grundstellung) і плагборд (Steckerbrett) до 13 пар.
 
 ### Як проходить одна літера
 
