@@ -27,6 +27,11 @@ static void test_text_conversion(void)
     nums_to_text(t, len, s);
     CHECK(strcmp(s, "ABZ") == 0);
     CHECK(text_to_nums("ABCDEF", t, 4) == 4);           /* не більше max */
+
+    /* Кирилиця й інші не-латинські символи відкидаються. */
+    len = text_to_nums("Привіт, AB ç!", t, 16);
+    CHECK(len == 2);
+    CHECK(t[0] == 0 && t[1] == 1);
 }
 
 /* Псевдовипадкові літери з фіксованим seed. */
