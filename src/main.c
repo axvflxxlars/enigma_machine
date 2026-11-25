@@ -169,6 +169,7 @@ static int cmd_crack(int argc, char **argv)
         if (strcmp(argv[i], "--deep") == 0) {
             opt.top_n = 2000;
             opt.stage3_top = 50;
+            opt.wide_rings = 1;
         }
     }
 

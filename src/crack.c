@@ -87,6 +87,7 @@ void crack_default_options(CrackOptions *opt)
     opt->max_plugs = 10;
     opt->both_reflectors = 0;
     opt->verbose = 0;
+    opt->wide_rings = 0;
 }
 
 
@@ -162,6 +163,8 @@ static int stage1_rotors(const int *ct, int len,
         ? NUM_REFLECTORS
         : 1;
 
+    int max_ring = opt->wide_rings ? 13 : 0;
+
     for (int r = 0; r < reflectors; r++) {
         for (int a = 0; a < NUM_ROTORS; a++) {
             for (int b = 0; b < NUM_ROTORS; b++) {
@@ -174,42 +177,46 @@ static int stage1_rotors(const int *ct, int len,
                     for (int p1 = 0; p1 < ALPHA; p1++) {
                         for (int p2 = 0; p2 < ALPHA; p2++) {
                             for (int p3 = 0; p3 < ALPHA; p3++) {
+                                for (int ring = 0; ring <= max_ring; ring += 13) {
 
-                                EnigmaKey key;
-                                key_init(&key);
+                                    EnigmaKey key;
+                                    key_init(&key);
 
-                                key.rotor[0] = a;
-                                key.rotor[1] = b;
-                                key.rotor[2] = c;
+                                    key.rotor[0] = a;
+                                    key.rotor[1] = b;
+                                    key.rotor[2] = c;
 
-                                key.pos[0] = p1;
-                                key.pos[1] = p2;
-                                key.pos[2] = p3;
+                                    key.pos[0] = p1;
+                                    key.pos[1] = p2;
+                                    key.pos[2] = p3;
 
-                                key.reflector = r;
+                                    key.ring[2] = ring;
 
-                                enigma_crypt(
-                                    &key, ct, decoded, len
-                                );
+                                    key.reflector = r;
 
-                                double score = score_ioc(
-                                    decoded, len
-                                );
+                                    enigma_crypt(
+                                        &key, ct, decoded, len
+                                    );
 
-                                if (saved < max) {
-                                    top[saved].key = key;
-                                    top[saved].score = score;
+                                    double score = score_ioc(
+                                        decoded, len
+                                    );
 
-                                    heap_up(top, saved);
-                                    saved++;
-                                } else if (score > top[0].score) {
-                                    top[0].key = key;
-                                    top[0].score = score;
+                                    if (saved < max) {
+                                        top[saved].key = key;
+                                        top[saved].score = score;
 
-                                    heap_down(top, saved);
+                                        heap_up(top, saved);
+                                        saved++;
+                                    } else if (score > top[0].score) {
+                                        top[0].key = key;
+                                        top[0].score = score;
+
+                                        heap_down(top, saved);
+                                    }
+
+                                    checked++;
                                 }
-
-                                checked++;
                             }
                         }
                     }
@@ -234,7 +241,8 @@ static int stage1_rotors(const int *ct, int len,
 
 /* ---------- Етап 2: підбір кілець ---------- */
 
-static int stage2_rings(const int *ct, int len, Candidate *c)
+static int stage2_rings(const int *ct, int len,
+                        const CrackOptions *opt, Candidate *c)
 {
     if (len <= 0) {
         return -1;
@@ -252,27 +260,34 @@ static int stage2_rings(const int *ct, int len, Candidate *c)
 
     double best_score = c->score;
 
-    for (int middle = 0; middle < ALPHA; middle++) {
-        for (int right = 0; right < ALPHA; right++) {
+    int max_left = opt->wide_rings ? 1 : 0;
 
-            EnigmaKey key = original;
+    for (int left = -max_left; left <= max_left; left++) {
+        for (int middle = 0; middle < ALPHA; middle++) {
+            for (int right = 0; right < ALPHA; right++) {
 
-            key.ring[1] = middle;
-            key.ring[2] = right;
+                EnigmaKey key = original;
 
-            key.pos[1] =
-                (original.pos[1] + middle) % ALPHA;
+                key.pos[0] =
+                    (original.pos[0] + left + ALPHA) % ALPHA;
 
-            key.pos[2] =
-                (original.pos[2] + right) % ALPHA;
+                key.ring[1] = middle;
+                key.ring[2] = right;
 
-            enigma_crypt(&key, ct, decoded, len);
+                key.pos[1] =
+                    (original.pos[1] + middle) % ALPHA;
 
-            double score = score_ioc(decoded, len);
+                key.pos[2] =
+                    (original.pos[2] + right - original.ring[2] + ALPHA) % ALPHA;
 
-            if (score > best_score) {
-                best_score = score;
-                best_key = key;
+                enigma_crypt(&key, ct, decoded, len);
+
+                double score = score_ioc(decoded, len);
+
+                if (score > best_score) {
+                    best_score = score;
+                    best_key = key;
+                }
             }
         }
     }
@@ -473,6 +488,7 @@ static double stage3_plugboard(const int *ct, int len,
 /* ---------- Етап 4: повторний підбір кілець ---------- */
 
 static double stage4_refine_rings(const int *ct, int len,
+                                  const CrackOptions *opt,
                                   EnigmaKey *key)
 {
     int *decoded = malloc((size_t)len * sizeof *decoded);
@@ -488,27 +504,34 @@ static double stage4_refine_rings(const int *ct, int len,
     enigma_crypt(&original, ct, decoded, len);
     double best_score = score_trigram(decoded, len);
 
-    for (int middle = 0; middle < ALPHA; middle++) {
-        for (int right = 0; right < ALPHA; right++) {
-            EnigmaKey candidate = original;
+    int max_left = opt->wide_rings ? 1 : 0;
 
-            candidate.ring[1] = middle;
-            candidate.ring[2] = right;
+    for (int left = -max_left; left <= max_left; left++) {
+        for (int middle = 0; middle < ALPHA; middle++) {
+            for (int right = 0; right < ALPHA; right++) {
+                EnigmaKey candidate = original;
 
-            candidate.pos[1] =
-                (original.pos[1] + middle
-                 - original.ring[1] + ALPHA) % ALPHA;
+                candidate.pos[0] =
+                    (original.pos[0] + left + ALPHA) % ALPHA;
 
-            candidate.pos[2] =
-                (original.pos[2] + right
-                 - original.ring[2] + ALPHA) % ALPHA;
+                candidate.ring[1] = middle;
+                candidate.ring[2] = right;
 
-            enigma_crypt(&candidate, ct, decoded, len);
-            double score = score_trigram(decoded, len);
+                candidate.pos[1] =
+                    (original.pos[1] + middle
+                     - original.ring[1] + ALPHA) % ALPHA;
 
-            if (score > best_score) {
-                best_score = score;
-                best_key = candidate;
+                candidate.pos[2] =
+                    (original.pos[2] + right
+                     - original.ring[2] + ALPHA) % ALPHA;
+
+                enigma_crypt(&candidate, ct, decoded, len);
+                double score = score_trigram(decoded, len);
+
+                if (score > best_score) {
+                    best_score = score;
+                    best_key = candidate;
+                }
             }
         }
     }
@@ -587,7 +610,7 @@ double crack(const int *ct, int len,
     int found = 0;
 
     for (int i = 0; i < n; i++) {
-        if (stage2_rings(ct, len, &top[i]) != 0) {
+        if (stage2_rings(ct, len, opt, &top[i]) != 0) {
             free(top);
             return -INFINITY;
         }
@@ -618,7 +641,7 @@ double crack(const int *ct, int len,
         }
 
         double refined_score = stage4_refine_rings(
-            ct, len, &top[i].key
+            ct, len, opt, &top[i].key
         );
 
         if (!isfinite(refined_score)) {

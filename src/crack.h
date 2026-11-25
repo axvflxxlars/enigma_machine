@@ -22,6 +22,7 @@ typedef struct {
     int max_plugs;         /* максимум пар плагборду */
     int both_reflectors;   /* 1 = пробувати UKW B і C, 0 = тільки B */
     int verbose;           /* 1 = друкувати прогрес у stderr */
+    int wide_rings;        /* 1 = етап 1 з двома рингами, лівий ротор +-1 */
 } CrackOptions;
 
 void crack_default_options(CrackOptions *opt);
