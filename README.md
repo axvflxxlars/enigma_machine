@@ -4,6 +4,8 @@
 
 Дедлайн: **25 листопада**.
 
+Повна документація: [docs/enigma_documentation.pdf](docs/enigma_documentation.pdf).
+
 ## Збірка і запуск
 
 ```bash
